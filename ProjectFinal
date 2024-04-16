@@ -1,0 +1,144 @@
+import cv2
+import dlib
+from scipy.spatial import distance
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+import os
+
+
+def calculate_EAR(eye):
+    A = distance.euclidean(eye[1], eye[5])
+    B = distance.euclidean(eye[2], eye[4])
+    C = distance.euclidean(eye[0], eye[3])
+    EAR = (A + B) / (2.0 * C)
+    return EAR
+
+
+def extract_features(image):
+   
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+  
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+
+  
+    faces = detector(gray)
+    
+    features = []
+    for face in faces:
+        
+        landmarks = predictor(gray, face)
+        
+        
+        leftEye = [(landmarks.part(i).x, landmarks.part(i).y) for i in range(36, 42)]
+        rightEye = [(landmarks.part(i).x, landmarks.part(i).y) for i in range(42, 48)]
+        
+        left_ear = calculate_EAR(leftEye)
+        right_ear = calculate_EAR(rightEye)
+        ear = (left_ear + right_ear) / 2.0
+        ear=round(ear,3)
+        
+        features.append(ear)
+    
+    return features
+
+svm_model = SVC(kernel='linear')
+
+def load_dataset_from_folders(dataset_path):
+    features = []
+    labels = []
+    for folder_name in ['Drowsy', 'Non_Drowsy']:  # Assuming folder names are 'drowsy' and 'non_drowsy'
+        folder_path = os.path.join(dataset_path, folder_name)
+        print(folder_path)
+        a=1
+        if not os.path.isdir(folder_path):
+            continue  
+        for filename in os.listdir(folder_path):
+            if filename.endswith('.jpg') or filename.endswith('.png'):
+                image_path = os.path.join(folder_path, filename)
+                image = cv2.imread(image_path)
+                if image is not None:
+                    resized_image = cv2.resize(image, (227, 227))
+                    image_features = extract_features(resized_image)
+                    if len(image_features)==0:
+                        continue
+                    features.append(image_features)
+                   
+                    label = 1 if folder_name == 'Drowsy' else 0
+                    labels.append(label)
+                    print(a)
+                    a+=1
+                    
+        
+        
+
+    return np.array(features), np.array(labels)
+
+
+dataset_path = 'DDD\Dataset'
+dataset_features, dataset_labels = load_dataset_from_folders(dataset_path)
+
+scaler = StandardScaler()
+dataset_features_scaled = scaler.fit_transform(dataset_features)
+
+svm_model.fit(dataset_features_scaled, dataset_labels)
+
+
+def Drowsiness_Detection():
+    cap = cv2.VideoCapture(0)
+    FrontFace = dlib.get_frontal_face_detector()
+    FaceLandmark = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+    while True:
+        _, frame = cap.read()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        faces = FrontFace(gray)
+        for face in faces:
+            face_landmarks = FaceLandmark(gray, face)
+            leftEye = []
+            rightEye = []
+
+            for n in range(36, 42):
+                x = face_landmarks.part(n).x
+                y = face_landmarks.part(n).y
+                leftEye.append((x, y))
+                next_point = n + 1
+                if n == 41:
+                    next_point = 36
+                x2 = face_landmarks.part(next_point).x
+                y2 = face_landmarks.part(next_point).y
+                cv2.line(frame, (x, y), (x2, y2), (0, 255, 0), 1)
+
+            for n in range(42, 48):
+                x = face_landmarks.part(n).x
+                y = face_landmarks.part(n).y
+                rightEye.append((x, y))
+                next_point = n + 1
+                if n == 47:
+                    next_point = 42
+                x2 = face_landmarks.part(next_point).x
+                y2 = face_landmarks.part(next_point).y
+                cv2.line(frame, (x, y), (x2, y2), (0, 255, 0), 1)
+
+          
+            real_time_features = [calculate_EAR(leftEye + rightEye)]
+            real_time_features_scaled = scaler.transform([real_time_features])
+
+            print(real_time_features)
+
+           
+            prediction = svm_model.predict(real_time_features_scaled)
+
+            print(prediction)
+            if prediction[0] == 1:
+                
+                print("Driver is drowsy. Take necessary action.")
+
+            cv2.imshow("blinkcount", frame)
+
+        if cv2.waitKey(1) == ord('q'):
+            break
+
+Drowsiness_Detection()
